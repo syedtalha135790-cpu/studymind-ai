@@ -1,6 +1,8 @@
-// StudyMind AI - REST API Client Service
+// StudyMind AI - REST API Client Service (Local & Production Vercel Deployment)
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+  ? '/api'
+  : 'http://localhost:8000/api';
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('studymind_token') || 'demo-sanctum-token-xyz';
@@ -11,7 +13,7 @@ const getAuthHeaders = () => {
   };
 };
 
-// Generic Fetch Wrapper with Error Handling & Fallback
+// Generic Fetch Wrapper with Error Handling & Seamless Production Fallback
 async function apiRequest(endpoint, method = 'GET', data = null, isFormData = false) {
   const url = `${API_BASE_URL}${endpoint}`;
   
@@ -37,7 +39,7 @@ async function apiRequest(endpoint, method = 'GET', data = null, isFormData = fa
     const jsonRes = await response.json();
     return { data: jsonRes };
   } catch (err) {
-    console.warn(`API Request to ${endpoint} failed, utilizing client fallback engine:`, err.message);
+    console.warn(`API Request to ${endpoint} failed, utilizing client AI fallback engine:`, err.message);
     return { data: null, error: err.message };
   }
 }
