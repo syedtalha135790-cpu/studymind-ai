@@ -2,6 +2,8 @@
 node_modules/
 frontend/node_modules/
 backend/vendor/
+backend_laravel/
+vendor/
 
 # Build & Cache
 frontend/dist/
@@ -14,8 +16,7 @@ backend/bootstrap/cache/*
 # Environment & Credentials
 .env
 backend/.env
-backend/.env.backup
-backend/.env.production
+backend/.env.example
 
 # Database
 backend/database/database.sqlite
