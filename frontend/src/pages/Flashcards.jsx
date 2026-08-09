@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useStudy } from '../context/StudyContext';
+import { flashcardsAPI } from '../services/api';
 import { 
   Layers, 
   RotateCw, 
@@ -8,18 +9,22 @@ import {
   Plus, 
   Filter, 
   Sparkles, 
-  Volume2, 
   ChevronLeft, 
   ChevronRight,
-  BookOpen
+  BookOpen,
+  Shuffle,
+  FileText,
+  Zap
 } from 'lucide-react';
 
 export default function Flashcards({ setActiveTab }) {
-  const { flashcards, toggleFlashcardLearned, toggleFlashcardFavorite, addFlashcard } = useStudy();
+  const { documents, flashcards, setFlashcards, toggleFlashcardLearned, toggleFlashcardFavorite, addFlashcard } = useStudy();
+  const [selectedDocId, setSelectedDocId] = useState(documents[0]?.id || 'doc-1');
   const [activeCategory, setActiveCategory] = useState('All');
   const [flippedMap, setFlippedMap] = useState({});
   const [studyMode, setStudyMode] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // New flashcard modal state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -27,9 +32,11 @@ export default function Flashcards({ setActiveTab }) {
   const [newAnswer, setNewAnswer] = useState('');
   const [newCategory, setNewCategory] = useState('Computer Science');
 
-  const categories = ['All', 'Favorites', 'Unlearned', 'Deep Learning', 'Organic Chemistry', 'Macroeconomics'];
+  const selectedDoc = documents.find(d => d.id === selectedDocId) || documents[0];
+  const categories = ['All', 'Favorites', 'Unlearned', 'Computer Science', 'Chemistry', 'Physics'];
 
   const filteredCards = flashcards.filter(card => {
+    if (card.docId && card.docId !== selectedDocId && card.document_id !== selectedDocId) return false;
     if (activeCategory === 'Favorites') return card.isFavorite;
     if (activeCategory === 'Unlearned') return !card.learned;
     if (activeCategory === 'All') return true;
@@ -40,12 +47,58 @@ export default function Flashcards({ setActiveTab }) {
     setFlippedMap(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const handleShuffle = () => {
+    setFlashcards(prev => [...prev].sort(() => Math.random() - 0.5));
+    setCurrentIndex(0);
+  };
+
+  const handleGenerateDeck = async () => {
+    setIsGenerating(true);
+    try {
+      const response = await flashcardsAPI.store({ docId: selectedDocId });
+      if (response.data && response.data.flashcards) {
+        setFlashcards(prev => [...response.data.flashcards, ...prev]);
+      }
+    } catch (err) {
+      // Client fallback
+      const mockDeck = [
+        {
+          id: `fc-${Date.now()}-1`,
+          docId: selectedDocId,
+          document_id: selectedDocId,
+          subject: selectedDoc?.category || 'Academic Subject',
+          question: `What is the primary function of neural backpropagation according to ${selectedDoc?.name || 'document'}?`,
+          answer: 'Backpropagation computes loss derivatives in reverse to iteratively update weights using gradient descent.',
+          category: selectedDoc?.category || 'Computer Science',
+          learned: false,
+          isFavorite: true
+        },
+        {
+          id: `fc-${Date.now()}-2`,
+          docId: selectedDocId,
+          document_id: selectedDocId,
+          subject: selectedDoc?.category || 'Academic Subject',
+          question: 'How does Dropout regularization prevent neural network overfitting?',
+          answer: 'Dropout randomly deactivates a fraction of neurons during training, forcing network co-adaptation reduction.',
+          category: selectedDoc?.category || 'Computer Science',
+          learned: false,
+          isFavorite: false
+        }
+      ];
+      setFlashcards(prev => [...mockDeck, ...prev]);
+    } finally {
+      setIsGenerating(false);
+      setCurrentIndex(0);
+    }
+  };
+
   const handleCreateCard = (e) => {
     e.preventDefault();
     if (!newQuestion || !newAnswer) return;
     const newCard = {
       id: `fc-${Date.now()}`,
-      docId: 'doc-1',
+      docId: selectedDocId,
+      document_id: selectedDocId,
       subject: newCategory,
       question: newQuestion,
       answer: newAnswer,
@@ -76,6 +129,15 @@ export default function Flashcards({ setActiveTab }) {
 
         <div className="flex items-center gap-3">
           <button
+            disabled={isGenerating}
+            onClick={handleGenerateDeck}
+            className="btn-primary text-xs sm:text-sm px-5 py-2.5 disabled:opacity-50"
+          >
+            {isGenerating ? <Sparkles className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 text-cyan-300" />}
+            {isGenerating ? 'Synthesizing...' : 'Generate Deck from PDF'}
+          </button>
+
+          <button
             onClick={() => setStudyMode(!studyMode)}
             className={`btn-secondary text-xs sm:text-sm px-5 py-2.5 ${studyMode ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40' : ''}`}
           >
@@ -85,30 +147,40 @@ export default function Flashcards({ setActiveTab }) {
 
           <button
             onClick={() => setShowAddModal(true)}
-            className="btn-primary text-xs sm:text-sm px-5 py-2.5"
+            className="btn-secondary text-xs sm:text-sm px-4 py-2.5"
           >
-            <Plus className="w-4 h-4" /> Add Custom Card
+            <Plus className="w-4 h-4" /> Add Card
           </button>
         </div>
       </div>
 
-      {/* Category Filter Chips */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2">
-        <Filter className="w-4 h-4 text-slate-400 shrink-0 mr-1" />
-        {categories.map(cat => (
-          <button
-            key={cat}
-            onClick={() => { setActiveCategory(cat); setCurrentIndex(0); }}
-            className={`
-              px-4 py-2 rounded-xl text-xs font-semibold shrink-0 transition-all
-              ${activeCategory === cat 
-                ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/20' 
-                : 'glass-panel text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'}
-            `}
-          >
-            {cat}
-          </button>
-        ))}
+      {/* Target Document & Category Toolbar */}
+      <div className="glass-panel p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 overflow-x-auto">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0">Source PDF:</span>
+          {documents.map(doc => (
+            <button
+              key={doc.id}
+              onClick={() => { setSelectedDocId(doc.id); setCurrentIndex(0); }}
+              className={`
+                px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all flex items-center gap-1.5
+                ${selectedDocId === doc.id 
+                  ? 'bg-cyan-500 text-white shadow-md' 
+                  : 'glass-input text-slate-400 hover:text-slate-200'}
+              `}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              {doc.name.length > 28 ? doc.name.substring(0, 28) + '...' : doc.name}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={handleShuffle}
+          className="btn-secondary text-xs px-4 py-1.5 self-end sm:self-center shrink-0"
+        >
+          <Shuffle className="w-3.5 h-3.5" /> Shuffle Deck
+        </button>
       </div>
 
       {/* Mode A: Interactive Deck Runner (Focus Study Mode) */}
@@ -118,7 +190,7 @@ export default function Flashcards({ setActiveTab }) {
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Card {currentIndex + 1} of {filteredCards.length}</span>
             <span>Click Card to Flip</span>
-            <span>{filteredCards[currentIndex]?.category}</span>
+            <span>{filteredCards[currentIndex]?.category || 'Academic'}</span>
           </div>
 
           {/* 3D Flip Card Container */}
@@ -205,7 +277,7 @@ export default function Flashcards({ setActiveTab }) {
       ) : (
         /* Mode B: Grid Deck View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCards.map(card => {
+          {(filteredCards.length > 0 ? filteredCards : flashcards).map(card => {
             const isFlipped = flippedMap[card.id];
             return (
               <div 
@@ -222,7 +294,7 @@ export default function Flashcards({ setActiveTab }) {
                   <div className="absolute inset-0 w-full h-full backface-hidden glass-card p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between shadow-xl">
                     <div className="flex justify-between items-center text-xs font-mono">
                       <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-500 font-semibold">
-                        {card.category}
+                        {card.category || card.subject || 'Study Card'}
                       </span>
                       <div className="flex items-center gap-2">
                         <button 

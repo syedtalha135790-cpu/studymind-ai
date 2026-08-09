@@ -34,10 +34,11 @@ async function apiRequest(endpoint, method = 'GET', data = null, isFormData = fa
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || `HTTP Error ${response.status}`);
     }
-    return await response.json();
+    const jsonRes = await response.json();
+    return { data: jsonRes };
   } catch (err) {
-    console.warn(`API Request to ${endpoint} failed, utilizing local fallback engine:`, err.message);
-    return null; // Return null so callers can seamlessly fall back to client AI engine
+    console.warn(`API Request to ${endpoint} failed, utilizing client fallback engine:`, err.message);
+    return { data: null, error: err.message };
   }
 }
 
@@ -49,45 +50,51 @@ export const authApi = {
   getProfile: () => apiRequest('/user'),
   updateProfile: (profileData) => apiRequest('/user/profile', 'PUT', profileData)
 };
+export const authAPI = authApi;
 
 // 2. PDF API
 export const pdfApi = {
-  uploadPdf: (formData) => apiRequest('/documents/upload', 'POST', formData, true),
+  upload: (formData) => apiRequest('/documents/upload', 'POST', formData, true),
   getPdfs: () => apiRequest('/documents'),
   getPdfById: (id) => apiRequest(`/documents/${id}`),
   deletePdf: (id) => apiRequest(`/documents/${id}`, 'DELETE'),
   downloadPdf: (id) => `${API_BASE_URL}/documents/${id}/download`
 };
+export const pdfAPI = pdfApi;
 
 // 3. AI Notes API
 export const notesApi = {
   getNotes: () => apiRequest('/notes'),
-  generateNotes: (docId) => apiRequest('/notes/generate', 'POST', { docId }),
+  generate: (params) => apiRequest('/notes/generate', 'POST', params),
   updateNote: (id, noteData) => apiRequest(`/notes/${id}`, 'PUT', noteData),
   exportNotesPdf: (id) => apiRequest(`/notes/export/${id}`)
 };
+export const notesAPI = notesApi;
 
 // 4. AI Flashcards API
 export const flashcardsApi = {
   getFlashcards: () => apiRequest('/flashcards'),
-  generateFlashcards: (docId) => apiRequest('/flashcards/generate', 'POST', { docId }),
-  createFlashcard: (cardData) => apiRequest('/flashcards', 'POST', cardData),
+  generate: (params) => apiRequest('/flashcards/generate', 'POST', params),
+  store: (cardData) => apiRequest('/flashcards', 'POST', cardData),
   toggleLearned: (id) => apiRequest(`/flashcards/${id}/learned`, 'PUT'),
   toggleFavorite: (id) => apiRequest(`/flashcards/${id}/favorite`, 'PUT')
 };
+export const flashcardsAPI = flashcardsApi;
 
 // 5. AI Quiz API
 export const quizApi = {
   getQuizzes: () => apiRequest('/quizzes'),
-  generateQuiz: (quizParams) => apiRequest('/quizzes/generate', 'POST', quizParams),
+  generate: (quizParams) => apiRequest('/quizzes/generate', 'POST', quizParams),
   submitAnswers: (quizId, answers) => apiRequest(`/quizzes/${quizId}/submit`, 'POST', { answers })
 };
+export const quizAPI = quizApi;
 
 // 6. Chat with PDF API (RAG Search)
 export const chatApi = {
   getChatMessages: (docId) => apiRequest(`/chat/${docId}`),
-  askQuestion: (docId, question, language = 'English') => apiRequest(`/chat/${docId}/ask`, 'POST', { question, language })
+  askQuestion: (docId, payload) => apiRequest(`/chat/${docId}/ask`, 'POST', payload)
 };
+export const pdfChatAPI = chatApi;
 
 // 7. Exam Roadmap API
 export const roadmapApi = {

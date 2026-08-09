@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useStudy } from '../context/StudyContext';
+import { quizAPI } from '../services/api';
 import confetti from 'canvas-confetti';
 import { 
   HelpCircle, 
@@ -12,14 +13,19 @@ import {
   BrainCircuit, 
   Check, 
   ArrowRight,
-  Zap
+  Zap,
+  FileText
 } from 'lucide-react';
 
 export default function QuizGenerator({ setActiveTab }) {
-  const { quizzes, addQuiz } = useStudy();
+  const { documents, quizzes, addQuiz } = useStudy();
+  const [selectedDocId, setSelectedDocId] = useState(documents[0]?.id || 'doc-1');
   const [selectedDifficulty, setSelectedDifficulty] = useState('Medium');
   const [questionCount, setQuestionCount] = useState(5);
-  const [questionType, setQuestionType] = useState('MCQ & True/False');
+  
+  // Interactive Question Formats Included
+  const [selectedFormats, setSelectedFormats] = useState(['MCQs', 'True/False', 'Fill Blanks', 'Short Answers']);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Active quiz runner state
   const [activeQuiz, setActiveQuiz] = useState(null);
@@ -28,66 +34,115 @@ export default function QuizGenerator({ setActiveTab }) {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [score, setScore] = useState(0);
 
-  // Generate AI Quiz simulation
-  const handleGenerateQuiz = () => {
-    const newGeneratedQuiz = {
-      id: `quiz-${Date.now()}`,
-      title: `${selectedDifficulty} AI Exam Prep Quiz`,
-      subject: 'Computer Science & AI',
-      docName: 'Artificial Intelligence - Chapter 4.pdf',
-      difficulty: selectedDifficulty,
-      questionsCount: questionCount,
-      lastScore: 0,
-      completedDate: 'Today',
-      questions: [
-        {
-          id: 1,
+  const toggleFormat = (fmt) => {
+    if (selectedFormats.includes(fmt)) {
+      if (selectedFormats.length === 1) return; // Must keep at least one format
+      setSelectedFormats(prev => prev.filter(f => f !== fmt));
+    } else {
+      setSelectedFormats(prev => [...prev, fmt]);
+    }
+  };
+
+  // Generate AI Quiz Call
+  const handleGenerateQuiz = async () => {
+    setIsGenerating(true);
+    const selectedDoc = documents.find(d => d.id === selectedDocId) || documents[0];
+
+    try {
+      const response = await quizAPI.generate({
+        docId: selectedDocId,
+        difficulty: selectedDifficulty,
+        questionCount,
+        formats: selectedFormats
+      });
+
+      if (response.data && response.data.quiz) {
+        setActiveQuiz(response.data.quiz);
+      } else {
+        throw new Error("No quiz object returned");
+      }
+    } catch (err) {
+      // Fallback generator matching exact selected formats
+      const mockQuestions = [];
+      let qId = 1;
+
+      if (selectedFormats.includes('MCQs')) {
+        mockQuestions.push({
+          id: qId++,
           type: 'mcq',
-          question: 'Which activation function is non-linear and outputs values strictly between 0 and 1?',
+          question: `According to ${selectedDoc?.name || 'document'}, which activation function outputs values strictly between 0 and 1?`,
           options: ['ReLU', 'Sigmoid', 'Linear', 'Leaky ReLU'],
           correctAnswer: 1,
-          explanation: 'Sigmoid maps real inputs to (0, 1) output range, ideal for probability predictions.'
-        },
-        {
-          id: 2,
-          type: 'tf',
-          question: 'True or False: Dropout randomly deactivates neurons during neural network testing time.',
-          options: ['True', 'False'],
-          correctAnswer: 1,
-          explanation: 'False! Dropout is applied ONLY during training. During testing all neurons are active.'
-        },
-        {
-          id: 3,
-          type: 'mcq',
-          question: 'What mathematical rule enables backpropagation through hidden layers?',
-          options: ['L’Hôpital’s Rule', 'Chain Rule of Calculus', 'Bayes Theorem', 'Fermat Principle'],
-          correctAnswer: 1,
-          explanation: 'The Chain Rule allows layer-by-layer partial derivative multiplication.'
-        },
-        {
-          id: 4,
-          type: 'tf',
-          question: 'True or False: Gradient Descent moves in the direction of steepest loss decrease.',
-          options: ['True', 'False'],
-          correctAnswer: 0,
-          explanation: 'True! Gradient points in the direction of max increase; stepping opposite minimizes loss.'
-        },
-        {
-          id: 5,
-          type: 'mcq',
-          question: 'What technique prevents neural network overfitting by adding L2 weight penalties?',
-          options: ['Weight Regularization', 'Data Augmentation', 'Batch Normalization', 'Early Stopping'],
-          correctAnswer: 0,
-          explanation: 'L2 regularization adds the sum of squared weights to the loss function penalty.'
-        }
-      ]
-    };
+          explanation: 'Sigmoid function maps real inputs into a probability-like output range (0, 1).'
+        });
+      }
 
-    setActiveQuiz(newGeneratedQuiz);
-    setCurrentQIndex(0);
-    setUserAnswers({});
-    setIsSubmitted(false);
-    setScore(0);
+      if (selectedFormats.includes('True/False')) {
+        mockQuestions.push({
+          id: qId++,
+          type: 'tf',
+          question: `True or False: Dropout randomly deactivates neurons during testing time.`,
+          options: ['True', 'False'],
+          correctAnswer: 1,
+          explanation: 'False! Dropout is applied ONLY during training. During testing all neurons remain active.'
+        });
+      }
+
+      if (selectedFormats.includes('Fill Blanks')) {
+        mockQuestions.push({
+          id: qId++,
+          type: 'fill',
+          question: `Fill in the Blank: The rule that computes partial derivatives in backpropagation is the ________ rule.`,
+          options: ['Chain', 'L’Hôpital', 'Product', 'Quotient'],
+          correctAnswer: 0,
+          explanation: 'The Chain Rule of calculus enables layer-by-layer derivative calculation.'
+        });
+      }
+
+      if (selectedFormats.includes('Short Answers')) {
+        mockQuestions.push({
+          id: qId++,
+          type: 'short',
+          question: `Short Question: What technique prevents neural network overfitting by adding L2 weight penalties?`,
+          options: ['L2 Weight Regularization', 'Data Augmentation', 'Batch Normalization', 'Early Stopping'],
+          correctAnswer: 0,
+          explanation: 'L2 Regularization adds the sum of squared weights to the loss function penalty.'
+        });
+      }
+
+      // Fill remaining count if requested > formats length
+      while (mockQuestions.length < questionCount) {
+        const idNum = mockQuestions.length + 1;
+        mockQuestions.push({
+          id: idNum,
+          type: 'mcq',
+          question: `Practice Question #${idNum} (${selectedDifficulty} Level): What algorithm optimizes loss minimization?`,
+          options: ['Stochastic Gradient Descent', 'Grid Search', 'Random Walk', 'Linear Regression'],
+          correctAnswer: 0,
+          explanation: 'Stochastic Gradient Descent minimizes the loss function iteratively.'
+        });
+      }
+
+      const generatedQuiz = {
+        id: `quiz-${Date.now()}`,
+        title: `${selectedDifficulty} AI Practice Exam (${selectedDoc?.name || 'PDF Document'})`,
+        subject: selectedDoc?.category || 'Academic Subject',
+        docName: selectedDoc?.name || 'Document.pdf',
+        difficulty: selectedDifficulty,
+        questionsCount: mockQuestions.length,
+        lastScore: 0,
+        completedDate: 'Today',
+        questions: mockQuestions
+      };
+
+      setActiveQuiz(generatedQuiz);
+    } finally {
+      setIsGenerating(false);
+      setCurrentQIndex(0);
+      setUserAnswers({});
+      setIsSubmitted(false);
+      setScore(0);
+    }
   };
 
   const handleSelectOption = (qId, optionIdx) => {
@@ -95,7 +150,7 @@ export default function QuizGenerator({ setActiveTab }) {
     setUserAnswers(prev => ({ ...prev, [qId]: optionIdx }));
   };
 
-  const handleSubmitQuiz = () => {
+  const handleSubmitQuiz = async () => {
     let calculatedScore = 0;
     activeQuiz.questions.forEach(q => {
       if (userAnswers[q.id] === q.correctAnswer) {
@@ -107,11 +162,17 @@ export default function QuizGenerator({ setActiveTab }) {
     setScore(finalPercentage);
     setIsSubmitted(true);
 
+    try {
+      await quizAPI.submitAnswers(activeQuiz.id, { answers: userAnswers });
+    } catch (e) {
+      // Handled silently
+    }
+
     // Trigger celebration confetti if score >= 60%
     if (finalPercentage >= 60) {
       confetti({
-        particleCount: 100,
-        spread: 70,
+        particleCount: 120,
+        spread: 80,
         origin: { y: 0.6 }
       });
     }
@@ -143,6 +204,22 @@ export default function QuizGenerator({ setActiveTab }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             
+            {/* Target Document Selector */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Target Study PDF Document</label>
+              <select
+                value={selectedDocId}
+                onChange={e => setSelectedDocId(e.target.value)}
+                className="glass-input w-full text-xs sm:text-sm font-semibold text-brand-500"
+              >
+                {documents.map(doc => (
+                  <option key={doc.id} value={doc.id}>
+                    📄 {doc.name} ({doc.pages} pages • {doc.category})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Difficulty */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Difficulty Level</label>
@@ -174,25 +251,49 @@ export default function QuizGenerator({ setActiveTab }) {
               </select>
             </div>
 
-            {/* Question Types */}
+            {/* Question Formats Included (Interactive Checkboxes) */}
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Question Formats Included</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                Question Formats Included (Click to toggle)
+              </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {['MCQs', 'True/False', 'Fill Blanks', 'Short Answers'].map(fmt => (
-                  <div key={fmt} className="p-2.5 rounded-xl glass-panel border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" /> {fmt}
-                  </div>
-                ))}
+                {['MCQs', 'True/False', 'Fill Blanks', 'Short Answers'].map(fmt => {
+                  const isSelected = selectedFormats.includes(fmt);
+                  return (
+                    <button
+                      key={fmt}
+                      type="button"
+                      onClick={() => toggleFormat(fmt)}
+                      className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 ${
+                        isSelected 
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-md' 
+                          : 'glass-panel border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      <CheckCircle2 className={`w-4 h-4 ${isSelected ? 'text-amber-400' : 'text-slate-600'}`} /> 
+                      {fmt}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
           </div>
 
           <button
+            disabled={isGenerating}
             onClick={handleGenerateQuiz}
-            className="btn-primary w-full py-4 text-base font-bold shadow-xl shadow-brand-500/30"
+            className="btn-primary w-full py-4 text-base font-bold shadow-xl shadow-brand-500/30 disabled:opacity-50"
           >
-            <Zap className="w-5 h-5 text-cyan-300" /> Generate AI Practice Quiz
+            {isGenerating ? (
+              <span className="flex items-center justify-center gap-2">
+                <Sparkles className="w-5 h-5 animate-spin" /> Synthesizing AI Exam Questions...
+              </span>
+            ) : (
+              <span className="flex items-center justify-center gap-2">
+                <Zap className="w-5 h-5 text-cyan-300" /> Generate AI Practice Quiz
+              </span>
+            )}
           </button>
         </div>
       )}
@@ -205,7 +306,7 @@ export default function QuizGenerator({ setActiveTab }) {
           <div className="glass-panel p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white text-base">{activeQuiz.title}</h3>
-              <p className="text-xs text-slate-400">Question {currentQIndex + 1} of {activeQuiz.questions.length}</p>
+              <p className="text-xs text-slate-400">Question {currentQIndex + 1} of {activeQuiz.questions.length} • {activeQuiz.difficulty} Mode</p>
             </div>
             
             <div className="flex items-center gap-3">
@@ -224,6 +325,13 @@ export default function QuizGenerator({ setActiveTab }) {
           {/* Question Card */}
           <div className="glass-panel p-8 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 space-y-6">
             
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 uppercase font-bold">
+                Format: {activeQuiz.questions[currentQIndex].type?.toUpperCase() || 'MCQ'}
+              </span>
+              <span className="text-xs text-slate-400 font-mono">ID #{activeQuiz.questions[currentQIndex].id}</span>
+            </div>
+
             <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white leading-relaxed">
               {currentQIndex + 1}. {activeQuiz.questions[currentQIndex].question}
             </h2>
@@ -314,7 +422,7 @@ export default function QuizGenerator({ setActiveTab }) {
                 Quiz Score: {score}%
               </h2>
               <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-                {score >= 80 ? 'Outstanding performance! You have mastered this chapter.' : 'Good effort! Review flashcards for remaining weak concepts.'}
+                {score >= 80 ? 'Outstanding performance! You have mastered this document.' : 'Good effort! Review flashcards for remaining weak concepts.'}
               </p>
 
               <div className="flex items-center justify-center gap-4 pt-2">

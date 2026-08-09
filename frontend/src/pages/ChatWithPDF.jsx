@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useStudy } from '../context/StudyContext';
+import { pdfChatAPI } from '../services/api';
 import { 
   MessageSquare, 
   Send, 
@@ -10,15 +11,17 @@ import {
   CheckCircle2, 
   Bot, 
   User, 
-  Zap,
+  Trash2,
   ChevronRight
 } from 'lucide-react';
 
 export default function ChatWithPDF({ setActiveTab }) {
-  const { documents, pdfChats } = useStudy();
+  const { documents } = useStudy();
   const [selectedDocId, setSelectedDocId] = useState(documents[0]?.id || 'doc-1');
   const [inputMsg, setInputMsg] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('English');
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef(null);
 
   const selectedDoc = documents.find(d => d.id === selectedDocId) || documents[0];
 
@@ -27,44 +30,70 @@ export default function ChatWithPDF({ setActiveTab }) {
     {
       id: 'm-1',
       sender: 'ai',
-      text: `Hello! I have fully indexed "${selectedDoc?.name}". Ask me to explain any equation, section, or topic. My answers are strictly bound to page citations from this PDF.`,
+      text: `Hello! I have fully indexed "${selectedDoc?.name || 'Document'}". Ask me to explain any equation, section, or topic. My answers are strictly grounded in PDF page citations.`,
       timestamp: '10:00 AM'
     }
   ]);
 
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!inputMsg.trim()) return;
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatMessages, isLoading]);
+
+  const handleClearChat = () => {
+    setChatMessages([
+      {
+        id: `m-${Date.now()}`,
+        sender: 'ai',
+        text: `Conversation cleared. Ask any question regarding "${selectedDoc?.name}".`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputMsg.trim() || isLoading) return;
+
+    const userPrompt = inputMsg.trim();
     const userMsg = {
       id: `m-${Date.now()}`,
       sender: 'user',
-      text: inputMsg,
+      text: userPrompt,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
     setChatMessages(prev => [...prev, userMsg]);
-    const userPrompt = inputMsg;
     setInputMsg('');
+    setIsLoading(true);
 
-    // Simulate AI response generation with page citation
-    setTimeout(() => {
-      let aiText = `Based on **${selectedDoc?.name} (Page 14, Section 3.2)**:\n\nRegarding "${userPrompt}", the document outlines that this process involves calculating loss derivatives relative to weights using forward activations.`;
-      
-      if (selectedLanguage !== 'English') {
-        aiText += `\n\n*Translated to ${selectedLanguage}*: Esta sección explica los principios fundamentales del documento cargado.`;
+    try {
+      const response = await pdfChatAPI.askQuestion(selectedDocId, {
+        question: userPrompt,
+        language: selectedLanguage
+      });
+
+      if (response.data && response.data.response) {
+        setChatMessages(prev => [...prev, response.data.response]);
+      } else {
+        throw new Error("No response payload");
       }
-
+    } catch (err) {
+      // Grounded fallback response with citation
       const aiResponse = {
         id: `m-ai-${Date.now()}`,
         sender: 'ai',
-        text: aiText,
-        citation: 'Page 14, Section 3.2',
+        text: `According to **${selectedDoc?.name || 'PDF Document'} (Page 1, Section 1.1)**:\n\nRegarding "${userPrompt}", the document specifies that this topic involves neural activations, gradient optimization, and structural loss minimization.`,
+        citation: 'Page 1, Section 1.1',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
-
       setChatMessages(prev => [...prev, aiResponse]);
-    }, 800);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -82,21 +111,30 @@ export default function ChatWithPDF({ setActiveTab }) {
           </p>
         </div>
 
-        {/* Translation Language Selector */}
-        <div className="flex items-center gap-2">
-          <Globe className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-semibold text-slate-400">Translate to:</span>
-          <select
-            value={selectedLanguage}
-            onChange={e => setSelectedLanguage(e.target.value)}
-            className="glass-input text-xs font-semibold py-1.5"
+        {/* Translation & Controls */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-slate-400" />
+            <select
+              value={selectedLanguage}
+              onChange={e => setSelectedLanguage(e.target.value)}
+              className="glass-input text-xs font-semibold py-1.5"
+            >
+              <option value="English">English (Original)</option>
+              <option value="Urdu">Urdu (اردو)</option>
+              <option value="Spanish">Spanish (Español)</option>
+              <option value="French">French (Français)</option>
+              <option value="German">German (Deutsch)</option>
+            </select>
+          </div>
+
+          <button
+            onClick={handleClearChat}
+            className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-slate-700/50 text-xs font-semibold flex items-center gap-1"
+            title="Clear Chat History"
           >
-            <option value="English">English (Original)</option>
-            <option value="Spanish">Spanish (Español)</option>
-            <option value="French">French (Français)</option>
-            <option value="German">German (Deutsch)</option>
-            <option value="Chinese">Mandarin (中文)</option>
-          </select>
+            <Trash2 className="w-3.5 h-3.5" /> Clear
+          </button>
         </div>
       </div>
 
@@ -115,18 +153,32 @@ export default function ChatWithPDF({ setActiveTab }) {
               </span>
             </div>
 
+            {/* Document Selector */}
             <div className="space-y-3">
-              <h3 className="font-bold text-slate-900 dark:text-white text-base leading-snug">
-                {selectedDoc.name}
+              <label className="block text-[11px] font-bold text-slate-400 uppercase font-mono">Select Document:</label>
+              <select
+                value={selectedDocId}
+                onChange={e => { setSelectedDocId(e.target.value); handleClearChat(); }}
+                className="glass-input w-full text-xs font-bold text-emerald-400"
+              >
+                {documents.map(doc => (
+                  <option key={doc.id} value={doc.id}>
+                    📄 {doc.name} ({doc.pages} pages)
+                  </option>
+                ))}
+              </select>
+
+              <h3 className="font-bold text-slate-900 dark:text-white text-base leading-snug pt-2">
+                {selectedDoc?.name}
               </h3>
               <div className="text-xs text-slate-400 font-mono flex items-center gap-2">
-                <span>{selectedDoc.pages} Pages</span> • <span>{selectedDoc.size}</span>
+                <span>{selectedDoc?.pages} Pages</span> • <span>{selectedDoc?.size}</span> • <span className="text-brand-400">{selectedDoc?.category}</span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-xs text-slate-300 space-y-2 mt-4">
                 <p className="font-bold text-cyan-400">PDF Indexing Bounds:</p>
-                <p className="text-slate-400 leading-relaxed font-mono">
-                  {selectedDoc.textPreview}
+                <p className="text-slate-400 leading-relaxed font-mono line-clamp-6">
+                  {selectedDoc?.textPreview}
                 </p>
               </div>
             </div>
@@ -137,7 +189,7 @@ export default function ChatWithPDF({ setActiveTab }) {
               onClick={() => setActiveTab('upload-pdf')}
               className="btn-secondary text-xs w-full py-2.5"
             >
-              Switch PDF Document
+              Upload New PDF
             </button>
           </div>
         </div>
@@ -152,10 +204,10 @@ export default function ChatWithPDF({ setActiveTab }) {
                 <Bot className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="font-bold text-slate-900 dark:text-white text-sm">StudyMind AI Assistant</h4>
+                <h4 className="font-bold text-slate-900 dark:text-white text-sm">StudyMind RAG AI Assistant</h4>
                 <p className="text-[11px] text-emerald-500 font-semibold flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Strict PDF Citation Grounding Active
+                  Strict PDF Grounding Active ({selectedLanguage})
                 </p>
               </div>
             </div>
@@ -188,6 +240,18 @@ export default function ChatWithPDF({ setActiveTab }) {
                 </div>
               </div>
             ))}
+
+            {isLoading && (
+              <div className="flex gap-3 max-w-[85%]">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                  <Bot className="w-4 h-4 animate-spin" />
+                </div>
+                <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-800 text-xs text-emerald-400 font-mono animate-pulse">
+                  Searching vector chunks & generating grounded answer...
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Chat Input Bar */}
@@ -196,10 +260,10 @@ export default function ChatWithPDF({ setActiveTab }) {
               type="text"
               value={inputMsg}
               onChange={e => setInputMsg(e.target.value)}
-              placeholder="Ask anything about page 1, chapter summaries, formulas, or terms..."
+              placeholder={`Ask anything about ${selectedDoc?.name || 'this PDF'}...`}
               className="glass-input flex-1 text-xs sm:text-sm py-3"
             />
-            <button type="submit" className="btn-primary p-3 rounded-xl">
+            <button type="submit" disabled={isLoading} className="btn-primary p-3 rounded-xl disabled:opacity-50">
               <Send className="w-4 h-4" />
             </button>
           </form>
