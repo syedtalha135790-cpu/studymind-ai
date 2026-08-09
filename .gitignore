@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/vendor/
+
+# Build & Cache
+frontend/dist/
+backend/storage/*.key
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/bootstrap/cache/*
+
+# Environment & Credentials
+.env
+backend/.env
+backend/.env.backup
+backend/.env.production
+
+# Database
+backend/database/database.sqlite
+backend/database/database.sqlite-journal
+
+# IDE & OS Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
